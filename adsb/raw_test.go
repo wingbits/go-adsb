@@ -30,7 +30,7 @@ import (
 	"fmt"
 	"testing"
 
-	"kreklow.us/go/go-adsb/adsb"
+	"github.com/wingbits/go-adsb/adsb"
 )
 
 func TestRawUnmarshalInterface(t *testing.T) {

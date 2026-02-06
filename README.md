@@ -1,9 +1,13 @@
-# Overview
-[![PkgGoDev](https://pkg.go.dev/badge/kreklow.us/go/go-adsb)](https://pkg.go.dev/kreklow.us/go/go-adsb)
-![License](https://img.shields.io/github/license/cjkreklow/go-adsb)
-![Version](https://img.shields.io/github/v/tag/cjkreklow/go-adsb)
-![Status](https://github.com/cjkreklow/go-adsb/actions/workflows/push.yml/badge.svg?branch=main)
-[![codecov](https://codecov.io/gh/cjkreklow/go-adsb/branch/main/graph/badge.svg)](https://codecov.io/gh/cjkreklow/go-adsb)
+# go-adsb
+
+> **Note:** This is a Wingbits fork of [cjkreklow/go-adsb](https://github.com/cjkreklow/go-adsb).
+>
+> We maintain this fork to add features needed for our ingestion pipeline. **Any generally useful
+> changes should be contributed back to the upstream repository** via pull request.
+>
+> Upstream: https://github.com/cjkreklow/go-adsb
+
+## Overview
 
 `go-adsb` is a Go module that includes packages for working with ADS-B and
 Mode S aircraft transponder data.
@@ -39,9 +43,10 @@ the text description of the value to be returned via the `%s` operator in
 Printf-style operations.
 
 # Usage
-See the documentation on [pkg.go.dev](https://pkg.go.dev/kreklow.us/go/go-adsb)
+See the documentation on [pkg.go.dev](https://pkg.go.dev/github.com/wingbits/go-adsb)
 for import paths and usage information.
 
 # About
-`go-adsb` is maintained by Collin Kreklow. The source code is licensed under
-the terms of the MIT license, see `LICENSE.txt` for further information.
+`go-adsb` was created and is maintained by Collin Kreklow. This fork is maintained
+by Wingbits. The source code is licensed under the terms of the MIT license,
+see `LICENSE.txt` for further information.

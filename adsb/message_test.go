@@ -29,7 +29,7 @@ import (
 	"math/big"
 	"testing"
 
-	"kreklow.us/go/go-adsb/adsb"
+	"github.com/wingbits/go-adsb/adsb"
 )
 
 func TestMessageErrors(t *testing.T) {
