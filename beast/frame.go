@@ -149,17 +149,34 @@ func (f *Frame) Signal() (uint8, error) {
 	return f.data.Bytes()[8], nil
 }
 
-// Timestamp returns the MLAT timestamp as a time.Duration.
-func (f *Frame) Timestamp() (time.Duration, error) {
+// TimestampTicks returns the raw MLAT timestamp in 12MHz ticks.
+func (f *Frame) TimestampTicks() (int64, error) {
 	if f.data.Len() < 8 {
-		return time.Duration(0), ErrNoData
+		return 0, ErrNoData
 	}
 
 	d := f.data.Bytes()
-	ts := int64(d[2])<<40 | int64(d[3])<<32 | int64(d[4])<<24 |
-		int64(d[5])<<16 | int64(d[6])<<8 | int64(d[7])
+	return int64(d[2])<<40 | int64(d[3])<<32 | int64(d[4])<<24 |
+		int64(d[5])<<16 | int64(d[6])<<8 | int64(d[7]), nil
+}
 
-	return time.Duration(ts * 1000 / 12).Round(time.Microsecond / 2), nil
+// TicksToTimestamp converts 12MHz ticks to a time.Duration.
+func TicksToTimestamp(ticks int64) time.Duration {
+	return time.Duration(ticks * 1000 / 12).Round(time.Microsecond / 2)
+}
+
+// TimestampToTicks converts a time.Duration to 12MHz ticks.
+func TimestampToTicks(d time.Duration) int64 {
+	return d.Nanoseconds() * 12 / 1000
+}
+
+// Timestamp returns the MLAT timestamp as a time.Duration.
+func (f *Frame) Timestamp() (time.Duration, error) {
+	ticks, err := f.TimestampTicks()
+	if err != nil {
+		return 0, err
+	}
+	return TicksToTimestamp(ticks), nil
 }
 
 // Type returns the frame type byte.
