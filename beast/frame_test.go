@@ -425,3 +425,121 @@ func testUnmarshalType(t *testing.T) {
 		t.Errorf("expected %c, received %c", ftr, rt)
 	}
 }
+
+func TestNewFrame(t *testing.T) {
+	t.Run("ModeS short round-trip", func(t *testing.T) {
+		var ticks int64 = 0x1af933baf325
+		var signal uint8 = 0xc4
+		payload, _ := hex.DecodeString("5da99adad95ff6")
+
+		f, err := beast.NewFrame(ticks, signal, payload)
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		gotTicks, err := f.TimestampTicks()
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+		if gotTicks != ticks {
+			t.Errorf("ticks: expected %d, received %d", ticks, gotTicks)
+		}
+
+		gotSignal, err := f.Signal()
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+		if gotSignal != signal {
+			t.Errorf("signal: expected %d, received %d", signal, gotSignal)
+		}
+
+		gotModeS, err := f.ModeS()
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+		if !bytes.Equal(gotModeS, payload) {
+			t.Errorf("ModeS: expected %x, received %x", payload, gotModeS)
+		}
+
+		gotType, err := f.Type()
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+		if gotType != 0x32 {
+			t.Errorf("type: expected 0x32, received 0x%x", gotType)
+		}
+	})
+
+	t.Run("ModeS long round-trip", func(t *testing.T) {
+		var ticks int64 = 0x0a0b0c0d0e0f
+		var signal uint8 = 0x80
+		payload, _ := hex.DecodeString("8d4840d6202cc371c32ce0576098")
+
+		f, err := beast.NewFrame(ticks, signal, payload)
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		gotType, _ := f.Type()
+		if gotType != 0x33 {
+			t.Errorf("type: expected 0x33, received 0x%x", gotType)
+		}
+
+		gotModeS, _ := f.ModeS()
+		if !bytes.Equal(gotModeS, payload) {
+			t.Errorf("ModeS: expected %x, received %x", payload, gotModeS)
+		}
+	})
+
+	t.Run("ModeAC round-trip", func(t *testing.T) {
+		var ticks int64 = 1000
+		var signal uint8 = 0x50
+		payload, _ := hex.DecodeString("5047")
+
+		f, err := beast.NewFrame(ticks, signal, payload)
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		gotType, _ := f.Type()
+		if gotType != 0x31 {
+			t.Errorf("type: expected 0x31, received 0x%x", gotType)
+		}
+
+		gotAC, _ := f.ModeAC()
+		if !bytes.Equal(gotAC, payload) {
+			t.Errorf("ModeAC: expected %x, received %x", payload, gotAC)
+		}
+	})
+
+	t.Run("MarshalBinary escapes 0x1a", func(t *testing.T) {
+		payload, _ := hex.DecodeString("5da99adad91a1a")
+
+		f, err := beast.NewFrame(0x1af933baf325, 0xc4, payload)
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		wire, err := f.MarshalBinary()
+		if err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		f2 := new(beast.Frame)
+		if err := f2.UnmarshalBinary(wire); err != nil {
+			t.Fatal("unexpected error:", err)
+		}
+
+		gotModeS, _ := f2.ModeS()
+		if !bytes.Equal(gotModeS, payload) {
+			t.Errorf("round-trip ModeS: expected %x, received %x", payload, gotModeS)
+		}
+	})
+
+	t.Run("bad payload length", func(t *testing.T) {
+		_, err := beast.NewFrame(0, 0, []byte{0x01, 0x02, 0x03})
+		if err == nil {
+			t.Error("expected error for 3-byte payload, received nil")
+		}
+	})
+}
