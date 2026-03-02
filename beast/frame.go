@@ -179,6 +179,40 @@ func (f *Frame) Timestamp() (time.Duration, error) {
 	return TicksToTimestamp(ticks), nil
 }
 
+// NewFrame constructs a Frame from individual components.
+// The frame type is inferred from the payload length:
+//   - 2 bytes → type 0x31 (Mode A/C)
+//   - 7 bytes → type 0x32 (Mode S short)
+//   - 14 bytes → type 0x33 (Mode S long)
+func NewFrame(ticks int64, signal uint8, payload []byte) (*Frame, error) {
+	var frameType byte
+	switch len(payload) {
+	case 2:
+		frameType = 0x31
+	case 7:
+		frameType = 0x32
+	case 14:
+		frameType = 0x33
+	default:
+		return nil, newErrorf(nil, "unsupported payload length: %d", len(payload))
+	}
+
+	f := &Frame{}
+	f.data.Grow(2 + 6 + 1 + len(payload))
+	f.data.WriteByte(0x1a)
+	f.data.WriteByte(frameType)
+	f.data.WriteByte(byte(ticks >> 40))
+	f.data.WriteByte(byte(ticks >> 32))
+	f.data.WriteByte(byte(ticks >> 24))
+	f.data.WriteByte(byte(ticks >> 16))
+	f.data.WriteByte(byte(ticks >> 8))
+	f.data.WriteByte(byte(ticks))
+	f.data.WriteByte(signal)
+	f.data.Write(payload)
+
+	return f, nil
+}
+
 // Type returns the frame type byte.
 func (f *Frame) Type() (byte, error) {
 	if f.data.Len() < 10 {
