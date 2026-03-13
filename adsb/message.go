@@ -205,6 +205,106 @@ func (m *Message) Sqk() ([]byte, error) {
 	return sqk, nil
 }
 
+// SurfaceMovement holds ground speed and track extracted from surface position messages (TC 5-8).
+type SurfaceMovement struct {
+	GS_V0      float64 // ground speed in knots, ADS-B v0 decoding
+	GS_V2      float64 // ground speed in knots, ADS-B v2 decoding
+	GSValid    bool    // true when movement code indicates valid speed data
+	Track      float64 // track angle in degrees (0-360)
+	TrackValid bool    // true when heading/track status bit is set
+}
+
+// SurfaceMovement extracts ground speed and track from a surface position message (TC 5-8).
+// Movement is encoded in ME bits 6-12 as a non-linear scale. Track is in ME bits 14-20,
+// with a validity bit at ME bit 13.
+func (m *Message) SurfaceMovement() (*SurfaceMovement, error) {
+	df, err := m.raw.DF()
+	if err != nil {
+		return nil, newError(err, "error retrieving surface movement")
+	}
+
+	switch df {
+	case 17, 18:
+		tc, err := m.raw.ESType()
+		if err != nil {
+			return nil, newError(err, "error retrieving surface movement")
+		}
+		if tc < 5 || tc > 8 {
+			return nil, newError(ErrNotAvailable, "not a surface position message")
+		}
+	default:
+		return nil, newError(ErrNotAvailable, "error retrieving surface movement")
+	}
+
+	sm := new(SurfaceMovement)
+
+	movement := uint8(m.raw.Bits(38, 44))
+	if movement > 0 && movement < 125 {
+		sm.GSValid = true
+		sm.GS_V0 = decodeMovementV0(movement)
+		sm.GS_V2 = decodeMovementV2(movement)
+	}
+
+	if m.raw.Bit(45) == 1 {
+		sm.TrackValid = true
+		sm.Track = float64(m.raw.Bits(46, 52)) * 360.0 / 128.0
+	}
+
+	return sm, nil
+}
+
+// decodeMovementV2 decodes the 7-bit movement field using ADS-B v2 scale.
+// Returns ground speed in knots (midpoint of the encoded range).
+func decodeMovementV2(movement uint8) float64 {
+	switch {
+	case movement >= 125:
+		return 0
+	case movement == 124:
+		return 180
+	case movement >= 109:
+		return 100 + (float64(movement)-109+0.5)*5
+	case movement >= 94:
+		return 70 + (float64(movement)-94+0.5)*2
+	case movement >= 39:
+		return 15 + (float64(movement)-39+0.5)*1
+	case movement >= 13:
+		return 2 + (float64(movement)-13+0.5)*0.50
+	case movement >= 9:
+		return 1 + (float64(movement)-9+0.5)*0.25
+	case movement >= 3:
+		return 0.125 + (float64(movement)-3+0.5)*0.875/6
+	case movement >= 2:
+		return 0.125 / 2
+	default:
+		return 0
+	}
+}
+
+// decodeMovementV0 decodes the 7-bit movement field using ADS-B v0 scale.
+// Identical to v2 except for movement codes 2-8 (lowest speed range).
+func decodeMovementV0(movement uint8) float64 {
+	switch {
+	case movement >= 125:
+		return 0
+	case movement == 124:
+		return 180
+	case movement >= 109:
+		return 100 + (float64(movement)-109+0.5)*5
+	case movement >= 94:
+		return 70 + (float64(movement)-94+0.5)*2
+	case movement >= 39:
+		return 15 + (float64(movement)-39+0.5)*1
+	case movement >= 13:
+		return 2 + (float64(movement)-13+0.5)*0.50
+	case movement >= 9:
+		return 1 + (float64(movement)-9+0.5)*0.25
+	case movement >= 2:
+		return 0.125 + (float64(movement)-2+0.5)*0.125
+	default:
+		return 0
+	}
+}
+
 // CPR returns the compact position report.
 func (m *Message) CPR() (*CPR, error) {
 	df, err := m.raw.DF()
