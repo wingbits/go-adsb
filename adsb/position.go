@@ -28,11 +28,12 @@ import (
 
 // CPR is an extended squitter compact position report.
 type CPR struct {
-	Nb  uint8  // number of encoded bits (17, 19, 14 or 12)
-	T   uint8  // time bit
-	F   uint8  // format bit
-	Lat uint32 // encoded latitude
-	Lon uint32 // encoded longitude
+	Nb      uint8  // number of encoded bits (17, 19, 14 or 12)
+	T       uint8  // time bit
+	F       uint8  // format bit
+	Lat     uint32 // encoded latitude
+	Lon     uint32 // encoded longitude
+	Surface bool   // true for surface position (TC 5-8), false for airborne (TC 9-18)
 }
 
 // DecodeLocal decodes an encoded position to a global latitude and
@@ -53,7 +54,9 @@ func (c *CPR) DecodeLocal(rp []float64) ([]float64, error) {
 	latc := float64(c.Lat) / 131072
 	lonc := float64(c.Lon) / 131072
 
-	dlat := 360.0 / float64(60-c.F)
+	base := cprBase(c.Surface)
+
+	dlat := base / float64(60-c.F)
 
 	j := math.Floor(latr/dlat) +
 		math.Floor((mod(latr, dlat)/dlat)-latc+0.5)
@@ -67,9 +70,9 @@ func (c *CPR) DecodeLocal(rp []float64) ([]float64, error) {
 	nl := float64(cprNL(coord[0]) - c.F)
 
 	if nl == 0 {
-		dlon = 360.0
+		dlon = base
 	} else {
-		dlon = 360.0 / nl
+		dlon = base / nl
 	}
 
 	m := math.Floor(lonr/dlon) +
@@ -93,6 +96,8 @@ func DecodeGlobalPosition(c1 *CPR, c2 *CPR) ([]float64, error) {
 		return nil, newError(nil, "bit encoding must be equal")
 	case c1.F == c2.F:
 		return nil, newError(nil, "format must be different")
+	case c1.Surface != c2.Surface:
+		return nil, newError(nil, "surface flag must be equal")
 	}
 
 	var t0 bool // set t0 to true if the even format is the later message
@@ -113,8 +118,10 @@ func DecodeGlobalPosition(c1 *CPR, c2 *CPR) ([]float64, error) {
 		lon1 = float64(c1.Lon) / 131072
 	}
 
-	dlat0 := 360.0 / 60.0
-	dlat1 := 360.0 / 59.0
+	base := cprBase(c1.Surface)
+
+	dlat0 := base / 60.0
+	dlat1 := base / 59.0
 
 	j := math.Floor(((59 * lat0) - (60 * lat1)) + 0.5)
 
@@ -132,13 +139,15 @@ func DecodeGlobalPosition(c1 *CPR, c2 *CPR) ([]float64, error) {
 		return nil, newError(nil, "positions cross latitude boundary")
 	}
 
-	coord := calcGlobal(t0, lon0, lon1, rlat0, rlat1)
+	coord := calcGlobal(t0, lon0, lon1, rlat0, rlat1, c1.Surface)
 
 	return coord, nil
 }
 
-func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64) []float64 {
+func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64, surface bool) []float64 {
 	var nl, ni, dlon, lonc float64
+
+	base := cprBase(surface)
 
 	coord := make([]float64, 2)
 
@@ -152,7 +161,7 @@ func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64) []float64 {
 			ni = nl
 		}
 
-		dlon = 360.0 / ni
+		dlon = base / ni
 		lonc = lon0
 	} else {
 		coord[0] = rlat1
@@ -164,7 +173,7 @@ func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64) []float64 {
 			ni = nl - 1
 		}
 
-		dlon = 360.0 / ni
+		dlon = base / ni
 		lonc = lon1
 	}
 
@@ -176,6 +185,16 @@ func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64) []float64 {
 	}
 
 	return coord
+}
+
+// cprBase returns 90° for surface CPR (TC 5-8) or 360° for airborne (TC 9-18).
+// Surface CPR uses 90° zones giving 4x finer resolution for the same
+// 17-bit encoding (ICAO Doc 9871 / DO-260B).
+func cprBase(surface bool) float64 {
+	if surface {
+		return 90.0
+	}
+	return 360.0
 }
 
 // mod implements the MOD function as defined in the ADS-B
