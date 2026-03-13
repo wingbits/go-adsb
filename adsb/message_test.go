@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"math"
 	"math/big"
 	"testing"
 
@@ -737,6 +738,87 @@ func testDF17SurfacePosGlobal(t *testing.T) {
 	}
 
 	testDecode(t, tc)
+}
+
+func TestSurfaceMovement(t *testing.T) {
+	t.Run("movement_and_track", func(t *testing.T) {
+		// TC=7, movement=50 (26.5 kt), heading_status=1, heading=64 (180°)
+		b, _ := hex.DecodeString("8D4841FF3B2C0000000000000000")
+		msg := new(adsb.Message)
+		if err := msg.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		sm, err := msg.SurfaceMovement()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sm.GSValid {
+			t.Fatal("expected GSValid=true")
+		}
+		if math.Abs(sm.GS_V0-26.5) > 0.01 {
+			t.Errorf("GS_V0 = %f, want 26.5", sm.GS_V0)
+		}
+		if math.Abs(sm.GS_V2-26.5) > 0.01 {
+			t.Errorf("GS_V2 = %f, want 26.5", sm.GS_V2)
+		}
+		if !sm.TrackValid {
+			t.Fatal("expected TrackValid=true")
+		}
+		if math.Abs(sm.Track-180.0) > 0.01 {
+			t.Errorf("Track = %f, want 180.0", sm.Track)
+		}
+	})
+
+	t.Run("no_movement_no_track", func(t *testing.T) {
+		// Existing surface test message: movement=0, heading_status=0
+		b, _ := hex.DecodeString("8D4841FF380002A3D98000000000")
+		msg := new(adsb.Message)
+		if err := msg.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		sm, err := msg.SurfaceMovement()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sm.GSValid {
+			t.Error("expected GSValid=false for movement=0")
+		}
+		if sm.TrackValid {
+			t.Error("expected TrackValid=false for heading_status=0")
+		}
+	})
+
+	t.Run("stopped", func(t *testing.T) {
+		// TC=7, movement=1 (stopped), heading_status=0
+		b, _ := hex.DecodeString("8D4841FF381000000000000000FF")
+		msg := new(adsb.Message)
+		if err := msg.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		sm, err := msg.SurfaceMovement()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sm.GSValid {
+			t.Fatal("expected GSValid=true for movement=1 (stopped)")
+		}
+		if sm.GS_V0 != 0 {
+			t.Errorf("GS_V0 = %f, want 0 (stopped)", sm.GS_V0)
+		}
+	})
+
+	t.Run("not_surface", func(t *testing.T) {
+		// TC=11 (airborne position) — should return error
+		b, _ := hex.DecodeString("8da8028758ab0028de078689d437")
+		msg := new(adsb.Message)
+		if err := msg.UnmarshalBinary(b); err != nil {
+			t.Fatal(err)
+		}
+		_, err := msg.SurfaceMovement()
+		if err == nil {
+			t.Error("expected error for non-surface message")
+		}
+	})
 }
 
 // test DF17 extended squitter identity.
