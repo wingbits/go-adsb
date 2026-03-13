@@ -344,6 +344,7 @@ type testCase struct {
 	Cat string
 
 	CPR       bool
+	Surface   bool
 	LocalPos  bool
 	GlobalPos bool
 	RefPt     []float64
@@ -370,6 +371,8 @@ func TestDecode(t *testing.T) {
 	t.Run("DF17 Position Local", testDF17PosLocal)
 	t.Run("DF17 Position Global", testDF17PosGlobal)
 	t.Run("DF17 Position Global Reverse", testDF17PosGlobalRev)
+	t.Run("DF17 Surface Position Local", testDF17SurfacePosLocal)
+	t.Run("DF17 Surface Position Global", testDF17SurfacePosGlobal)
 	t.Run("DF17 Identity", testDF17Ident)
 	t.Run("DF20", testDF20)
 	t.Run("DF21", testDF21)
@@ -671,6 +674,71 @@ func testDF17PosGlobalRev(t *testing.T) {
 	testDecode(t, tc)
 }
 
+// test DF17 extended squitter surface position, local decode.
+// TC=7, F=0, Lat=86508, Lon=98304 encodes a position near Amsterdam.
+func testDF17SurfacePosLocal(t *testing.T) {
+	tc := &testCase{
+		Msg: "8D4841FF380002A3D98000000000",
+
+		DF: 17,
+		CA: 5,
+		FS: -1,
+		VS: -1,
+
+		TC:  7,
+		SS:  -1,
+		Cat: "",
+
+		CPR:      true,
+		Surface:  true,
+		LocalPos: true,
+		RefPt:    []float64{51.99, 4.375},
+
+		Lat: 51.99009704589844,
+		Lon: 4.375,
+
+		ICAO: 0x4841ff,
+		Alt:  0,
+		Sqk:  []byte{},
+		Call: "",
+	}
+
+	testDecode(t, tc)
+}
+
+// test DF17 extended squitter surface position, global decode.
+// c1: TC=7, F=1 (odd); c2: TC=7, F=0 (even).
+// Expected output uses the even frame's lat/lon, giving exact lon=4.375.
+func testDF17SurfacePosGlobal(t *testing.T) {
+	tc := &testCase{
+		Msg: "8D4841FF38000452F7676C000000",
+
+		DF: 17,
+		CA: 5,
+		FS: -1,
+		VS: -1,
+
+		TC:  7,
+		SS:  -1,
+		Cat: "",
+
+		CPR:       true,
+		Surface:   true,
+		GlobalPos: true,
+		Msg2:      "8D4841FF380002A3D98000000000",
+
+		Lat: 51.99009704589844,
+		Lon: 4.375,
+
+		ICAO: 0x4841ff,
+		Alt:  0,
+		Sqk:  []byte{},
+		Call: "",
+	}
+
+	testDecode(t, tc)
+}
+
 // test DF17 extended squitter identity.
 func testDF17Ident(t *testing.T) {
 	tc := &testCase{
@@ -730,6 +798,10 @@ func testCPR(t *testing.T, tc *testCase, msg *adsb.Message) {
 
 	if !tc.CPR && cpr != nil {
 		t.Error("CPR: unexpected position report populated")
+	}
+
+	if tc.CPR && cpr != nil && cpr.Surface != tc.Surface {
+		t.Errorf("CPR Surface: received %v, expected %v", cpr.Surface, tc.Surface)
 	}
 
 	if tc.CPR && tc.LocalPos {
