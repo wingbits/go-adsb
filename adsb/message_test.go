@@ -726,6 +726,7 @@ func testDF17SurfacePosGlobal(t *testing.T) {
 		CPR:       true,
 		Surface:   true,
 		GlobalPos: true,
+		RefPt:     []float64{52.0, 4.5},
 		Msg2:      "8D4841FF380002A3D98000000000",
 
 		Lat: 51.99009704589844,
@@ -961,7 +962,12 @@ func testCPRGlobal(t *testing.T, tc *testCase, cpr *adsb.CPR) {
 		t.Fatal("no position decoded in Msg2")
 	}
 
-	c, err := adsb.DecodeGlobalPosition(cpr, cpr2)
+	var c []float64
+	if tc.Surface {
+		c, err = adsb.DecodeGlobalSurfacePosition(cpr, cpr2, tc.RefPt[0], tc.RefPt[1])
+	} else {
+		c, err = adsb.DecodeGlobalPosition(cpr, cpr2)
+	}
 	if err != nil {
 		t.Error("CPR: global decode error:", err)
 	} else {

@@ -124,18 +124,57 @@ func TestDecodeGlobalPosition_Airborne(t *testing.T) {
 	}
 }
 
-func TestDecodeGlobalPosition_Surface(t *testing.T) {
-	pos, err := DecodeGlobalPosition(surfaceEven, surfaceOdd)
-	if err != nil {
-		t.Fatalf("DecodeGlobalPosition surface: %v", err)
+func TestDecodeGlobalPosition_Surface_Rejected(t *testing.T) {
+	if _, err := DecodeGlobalPosition(surfaceEven, surfaceOdd); err == nil {
+		t.Error("expected error when calling DecodeGlobalPosition with surface CPR")
 	}
-	// Global decode uses the odd frame's resolved position, giving a slight
-	// offset from the even frame expected position (~51.99, ~4.375).
+}
+
+func TestDecodeGlobalSurfacePosition(t *testing.T) {
+	// Reference near Amsterdam Schiphol
+	pos, err := DecodeGlobalSurfacePosition(surfaceEven, surfaceOdd, 52.0, 4.5)
+	if err != nil {
+		t.Fatalf("DecodeGlobalSurfacePosition: %v", err)
+	}
 	if math.Abs(pos[0]-51.99) > 0.01 {
 		t.Errorf("lat = %f, want ~51.99", pos[0])
 	}
 	if math.Abs(pos[1]-4.375) > 0.01 {
 		t.Errorf("lon = %f, want ~4.375", pos[1])
+	}
+}
+
+func TestDecodeGlobalSurfacePosition_SouthernHemisphere(t *testing.T) {
+	// Same CPR data but reference in southern hemisphere should select that quadrant
+	pos, err := DecodeGlobalSurfacePosition(surfaceEven, surfaceOdd, -38.0, 4.5)
+	if err != nil {
+		t.Fatalf("DecodeGlobalSurfacePosition southern: %v", err)
+	}
+	// Should be ~51.99-90 = ~-38.01
+	if pos[0] > 0 || math.Abs(pos[0]-(-38.01)) > 0.1 {
+		t.Errorf("lat = %f, want negative (southern hemisphere)", pos[0])
+	}
+}
+
+func TestDecodeGlobalSurfacePosition_LonDisambiguation(t *testing.T) {
+	// Reference with longitude offset by 90° should select different quadrant
+	pos1, err := DecodeGlobalSurfacePosition(surfaceEven, surfaceOdd, 52.0, 4.5)
+	if err != nil {
+		t.Fatalf("DecodeGlobalSurfacePosition ref1: %v", err)
+	}
+	pos2, err := DecodeGlobalSurfacePosition(surfaceEven, surfaceOdd, 52.0, 94.5)
+	if err != nil {
+		t.Fatalf("DecodeGlobalSurfacePosition ref2: %v", err)
+	}
+	lonDiff := math.Abs(pos2[1] - pos1[1])
+	if math.Abs(lonDiff-90) > 1 {
+		t.Errorf("longitude quadrant shift = %f, want ~90", lonDiff)
+	}
+}
+
+func TestDecodeGlobalSurfacePosition_AirborneRejected(t *testing.T) {
+	if _, err := DecodeGlobalSurfacePosition(airborneGlobalEven, airborneGlobalOdd, 42.0, -90.0); err == nil {
+		t.Error("expected error when calling DecodeGlobalSurfacePosition with airborne CPR")
 	}
 }
 
