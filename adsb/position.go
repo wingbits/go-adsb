@@ -84,29 +84,103 @@ func (c *CPR) DecodeLocal(rp []float64) ([]float64, error) {
 }
 
 // DecodeGlobalPosition decodes an encoded position to a globally
-// unabmiguous latitude and longitude by combining two CPR messages.
+// unambiguous latitude and longitude by combining two CPR messages.
 // The two messages must have different formats (CPR.F) and must have
 // a time difference of less than 10 seconds (3 NM distance). The
 // return value is in the format [latitude, longitude].
+//
+// For surface positions use DecodeGlobalSurfacePosition which
+// requires a reference location to resolve the 4-way zone ambiguity.
 func DecodeGlobalPosition(c1 *CPR, c2 *CPR) ([]float64, error) {
-	switch {
-	case c1 == nil || c2 == nil:
-		return nil, newError(nil, "incomplete arguments")
-	case c1.Nb != c2.Nb:
-		return nil, newError(nil, "bit encoding must be equal")
-	case c1.F == c2.F:
-		return nil, newError(nil, "format must be different")
-	case c1.Surface != c2.Surface:
-		return nil, newError(nil, "surface flag must be equal")
+	if err := validateGlobalPair(c1, c2); err != nil {
+		return nil, err
+	}
+	if c1.Surface {
+		return nil, newError(nil, "use DecodeGlobalSurfacePosition for surface CPR")
 	}
 
-	var t0 bool // set t0 to true if the even format is the later message
+	lat0, lon0, lat1, lon1, t0 := extractGlobalFields(c1, c2)
+	rlat0, rlat1, err := resolveGlobalLatitudes(lat0, lat1, c1.Surface)
+	if err != nil {
+		return nil, err
+	}
 
-	var lat0, lon0, lat1, lon1 float64
+	if rlat0 >= 270 {
+		rlat0 -= 360
+	}
+	if rlat1 >= 270 {
+		rlat1 -= 360
+	}
 
+	if cprNL(rlat0) != cprNL(rlat1) {
+		return nil, newError(nil, "positions cross latitude boundary")
+	}
+
+	coord := calcGlobal(t0, lon0, lon1, rlat0, rlat1, false)
+	return coord, nil
+}
+
+// DecodeGlobalSurfacePosition decodes a surface CPR position using two
+// frames and a reference location for zone disambiguation. Surface CPR
+// uses 90° zones creating a 4-way ambiguity that requires the reference
+// to resolve (readsb cpr.c:decodeCPRsurface).
+func DecodeGlobalSurfacePosition(c1, c2 *CPR, refLat, refLon float64) ([]float64, error) {
+	if err := validateGlobalPair(c1, c2); err != nil {
+		return nil, err
+	}
+	if !c1.Surface {
+		return nil, newError(nil, "use DecodeGlobalPosition for airborne CPR")
+	}
+
+	lat0, lon0, lat1, lon1, t0 := extractGlobalFields(c1, c2)
+	rlat0, rlat1, err := resolveGlobalLatitudes(lat0, lat1, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Latitude disambiguation: surface CPR produces rlat in [0, 90).
+	// Pick the hemisphere closest to the reference latitude.
+	// Only two valid quadrants exist for latitude: [-90,0] and [0,90].
+	rlat0 = disambiguateSurfaceLatitude(rlat0, refLat)
+	rlat1 = disambiguateSurfaceLatitude(rlat1, refLat)
+
+	if rlat0 < -90 || rlat0 > 90 || rlat1 < -90 || rlat1 > 90 {
+		return nil, newError(nil, "latitude out of range after disambiguation")
+	}
+
+	if cprNL(rlat0) != cprNL(rlat1) {
+		return nil, newError(nil, "positions cross latitude boundary")
+	}
+
+	coord := calcGlobal(t0, lon0, lon1, rlat0, rlat1, true)
+
+	// Longitude disambiguation: all four 90° quadrants are valid.
+	// Shift to the quadrant closest to the reference longitude.
+	coord[1] += math.Floor((refLon-coord[1]+45)/90) * 90
+	// Normalize to [-180, 180)
+	coord[1] -= math.Floor((coord[1]+180)/360) * 360
+
+	return coord, nil
+}
+
+func validateGlobalPair(c1, c2 *CPR) error {
+	switch {
+	case c1 == nil || c2 == nil:
+		return newError(nil, "incomplete arguments")
+	case c1.Nb != c2.Nb:
+		return newError(nil, "bit encoding must be equal")
+	case c1.F == c2.F:
+		return newError(nil, "format must be different")
+	case c1.Surface != c2.Surface:
+		return newError(nil, "surface flag must be equal")
+	}
+	return nil
+}
+
+func extractGlobalFields(c1, c2 *CPR) (lat0, lon0, lat1, lon1 float64, t0 bool) {
 	if c1.F == 0 {
 		t0 = false
-		lat0 = float64(c1.Lat) / 131072 // 2**17 = 131072
+		lat0 = float64(c1.Lat) / 131072
 		lon0 = float64(c1.Lon) / 131072
 		lat1 = float64(c2.Lat) / 131072
 		lon1 = float64(c2.Lon) / 131072
@@ -117,31 +191,37 @@ func DecodeGlobalPosition(c1 *CPR, c2 *CPR) ([]float64, error) {
 		lat1 = float64(c1.Lat) / 131072
 		lon1 = float64(c1.Lon) / 131072
 	}
+	return
+}
 
-	base := cprBase(c1.Surface)
-
+func resolveGlobalLatitudes(lat0, lat1 float64, surface bool) (rlat0, rlat1 float64, err error) {
+	base := cprBase(surface)
 	dlat0 := base / 60.0
 	dlat1 := base / 59.0
 
 	j := math.Floor(((59 * lat0) - (60 * lat1)) + 0.5)
 
-	rlat0 := dlat0 * (mod(j, 60) + lat0)
-	if rlat0 >= 270 {
-		rlat0 -= 360
+	rlat0 = dlat0 * (mod(j, 60) + lat0)
+	rlat1 = dlat1 * (mod(j, 59) + lat1)
+	return rlat0, rlat1, nil
+}
+
+// disambiguateSurfaceLatitude picks the hemisphere closest to refLat.
+// rlat is in [0, 90); the two candidates are rlat and rlat-90.
+func disambiguateSurfaceLatitude(rlat, refLat float64) float64 {
+	if rlat == 0 {
+		if refLat < -45 {
+			return -90
+		}
+		if refLat > 45 {
+			return 90
+		}
+		return 0
 	}
-
-	rlat1 := dlat1 * (mod(j, 59) + lat1)
-	if rlat1 >= 270 {
-		rlat1 -= 360
+	if (rlat - refLat) > 45 {
+		return rlat - 90
 	}
-
-	if cprNL(rlat0) != cprNL(rlat1) {
-		return nil, newError(nil, "positions cross latitude boundary")
-	}
-
-	coord := calcGlobal(t0, lon0, lon1, rlat0, rlat1, c1.Surface)
-
-	return coord, nil
+	return rlat
 }
 
 func calcGlobal(t0 bool, lon0, lon1, rlat0, rlat1 float64, surface bool) []float64 {
