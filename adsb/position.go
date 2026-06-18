@@ -65,6 +65,12 @@ func (c *CPR) DecodeLocal(rp []float64) ([]float64, error) {
 
 	coord[0] = dlat * (j + latc)
 
+	// Reject if decoded latitude is more than half a zone from the reference,
+	// matching readsb's decodeCPRrelative sanity check.
+	if math.Abs(coord[0]-latr) > dlat/2 {
+		return nil, newError(nil, "latitude exceeds half zone from reference")
+	}
+
 	var dlon float64
 
 	nl := float64(cprNL(coord[0]) - c.F)
@@ -79,6 +85,11 @@ func (c *CPR) DecodeLocal(rp []float64) ([]float64, error) {
 		math.Floor((mod(lonr, dlon)/dlon)-lonc+0.5)
 
 	coord[1] = dlon * (m + lonc)
+
+	// Reject if decoded longitude is more than half a zone from the reference.
+	if math.Abs(coord[1]-lonr) > dlon/2 {
+		return nil, newError(nil, "longitude exceeds half zone from reference")
+	}
 
 	return coord, nil
 }
